@@ -4,9 +4,11 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Models\Group;
+use App\Models\User;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Validator;
+use Illuminate\Validation\Rule;
 
 class GroupController extends Controller
 {
@@ -20,12 +22,12 @@ class GroupController extends Controller
         $user = $request->user();
         // Ambil grup yang dibuat oleh user ATAU dimana user adalah anggota
         $groups = Group::where('created_by', $user->id)
-                       ->orWhereHas('members', function ($query) use ($user) {
-                           $query->where('users.id', $user->id);
-                       })
-                       ->with(['creator:id,name', 'members:id,name']) // Eager load relasi dengan kolom tertentu
-                       ->latest() // Urutkan berdasarkan yang terbaru
-                       ->paginate(10); // Tambahkan paginasi
+            ->orWhereHas('approvedMembers', function ($query) use ($user) {
+                $query->where('users.id', $user->id);
+            })
+            ->with(['creator:id,name', 'approvedMembers:id,name']) // Eager load relasi dengan kolom tertentu
+            ->latest() // Urutkan berdasarkan yang terbaru
+            ->paginate(10); // Tambahkan paginasi
 
         return response()->json($groups);
     }
@@ -52,11 +54,13 @@ class GroupController extends Controller
             'description' => $request->description,
             'created_by' => Auth::id(), // atau $request->user()->id
         ]);
+        $group->allMemberEntries()->attach(Auth::id(), [
+            'status' => 'approved',
+            'responded_at' => now(),
+            'approved_by' => Auth::id()
+        ]);
 
-        // Secara otomatis menambahkan pembuat grup sebagai anggota pertama
-        $group->members()->attach(Auth::id());
-
-        return response()->json($group->load(['creator:id,name', 'members:id,name']), 201);
+        return response()->json($group->load(['creator:id,name', 'approvedMembers:id,name']), 201);
     }
 
     /**
@@ -68,11 +72,11 @@ class GroupController extends Controller
     public function show(Group $group, Request $request)
     {
         $user = $request->user();
-        if ($group->created_by !== $user->id && !$group->members()->where('users.id', $user->id)->exists()) {
+        if ($group->created_by !== $user->id && !$group->approvedMembers()->where('users.id', $user->id)->exists()) {
             return response()->json(['message' => 'Unauthorized to view this group.'], 403);
         }
         // Eager load relasi yang dibutuhkan
-        return response()->json($group->load(['creator:id,name', 'members:id,name', 'projects']));
+        return response()->json($group->load(['creator:id,name', 'approvedMembers:id,name', 'projects']));
     }
 
     /**
@@ -100,7 +104,6 @@ class GroupController extends Controller
         $group->update($request->only(['name', 'description']));
 
         return response()->json($group->load(['creator:id,name', 'members:id,name']));
-
     }
 
     /**
@@ -119,48 +122,152 @@ class GroupController extends Controller
         return response()->json(['message' => 'Group deleted successfully.'], 200);
     }
 
-    public function joinGroup(Request $request, Group $group)
+    /**
+     * Allow an authenticated user to request to join a group.
+     * (Menggantikan 'joinGroup' sebelumnya)
+     */
+    public function requestToJoinGroup(Request $request, Group $group)
     {
         $user = $request->user();
 
-        // Cek apakah user sudah menjadi anggota
-        if ($group->members()->where('users.id', $user->id)->exists()) {
-            return response()->json(['message' => 'You are already a member of this group.'], 409); // 409 Conflict
+        // Cek apakah user adalah pembuat grup (sudah otomatis jadi anggota)
+        if ($group->created_by === $user->id) {
+            return response()->json(['message' => 'You are the creator of this group.'], 400);
         }
 
-        $group->members()->attach($user->id);
-        return response()->json(['message' => 'Successfully joined the group.', 'group' => $group->load('members:id,name')], 200);
+        // Cek apakah user sudah memiliki entri di pivot table (pending, approved, atau rejected)
+        $existingEntry = $group->allMemberEntries()->where('users.id', $user->id)->first();
+
+        if ($existingEntry) {
+            $pivotStatus = $existingEntry->pivot->status;
+            if ($pivotStatus === 'approved') {
+                return response()->json(['message' => 'You are already a member of this group.'], 409);
+            } elseif ($pivotStatus === 'pending') {
+                return response()->json(['message' => 'Your request to join is already pending.'], 409);
+            } elseif ($pivotStatus === 'rejected') {
+                // Kebijakan: jika pernah ditolak, apakah boleh request lagi? Untuk sekarang, kita izinkan request ulang.
+                // Jika tidak boleh, return error di sini.
+                // Jika boleh, kita akan update status menjadi pending lagi.
+                $group->allMemberEntries()->updateExistingPivot($user->id, [
+                    'status' => 'pending',
+                    'responded_at' => null,
+                    'approved_by' => null,
+                    'created_at' => now(), // Perbarui waktu permintaan
+                    'updated_at' => now()
+                ]);
+                 return response()->json(['message' => 'Your request to join has been re-submitted.'], 200);
+            }
+        }
+
+        // Buat permintaan baru
+        $group->allMemberEntries()->attach($user->id, ['status' => 'pending', 'created_at' => now(), 'updated_at' => now()]); // created_at dari withTimestamps
+
+        return response()->json(['message' => 'Request to join group sent successfully. Waiting for approval.'], 200);
     }
+
+    /**
+     * Allow an authenticated user (who is an approved member but not the creator) to leave a group.
+     */
     public function leaveGroup(Request $request, Group $group)
     {
         $user = $request->user();
 
-        // Pembuat grup tidak bisa meninggalkan grup (harus menghapus grup atau transfer kepemilikan - logika lebih kompleks)
         if ($group->created_by === $user->id) {
             return response()->json(['message' => 'Group creator cannot leave the group. You can delete the group instead.'], 403);
         }
 
-        // Cek apakah user adalah anggota
-        if (!$group->members()->where('users.id', $user->id)->exists()) {
-            return response()->json(['message' => 'You are not a member of this group.'], 404);
+        $isApprovedMember = $group->approvedMembers()->where('users.id', $user->id)->exists();
+
+        if (!$isApprovedMember) {
+            return response()->json(['message' => 'You are not an approved member of this group or your request is not approved.'], 404);
         }
 
-        $group->members()->detach($user->id);
+        $group->allMemberEntries()->detach($user->id); // Hapus entri dari pivot
         return response()->json(['message' => 'Successfully left the group.'], 200);
     }
 
-     /**
-     * Get members of a specific group.
-     * Mendapatkan anggota dari grup tertentu.
+    /**
+     * Get approved members of a specific group.
      */
     public function getMembers(Request $request, Group $group)
     {
-        // Pastikan user yang meminta adalah anggota atau pembuat grup
         $user = $request->user();
-        if ($group->created_by !== $user->id && !$group->members()->where('users.id', $user->id)->exists()) {
+        // Hanya pembuat atau anggota yang disetujui yang boleh melihat daftar anggota
+        if ($group->created_by !== $user->id && !$group->approvedMembers()->where('users.id', $user->id)->exists()) {
             return response()->json(['message' => 'Unauthorized to view members of this group.'], 403);
         }
+        return response()->json($group->approvedMembers()->select('users.id', 'users.name', 'users.email')->get());
+    }
 
-        return response()->json($group->members()->select('users.id', 'users.name', 'users.email')->get());
+    // --- Metode Baru untuk Approval ---
+
+    /**
+     * List pending join requests for a group (only for group creator).
+     */
+    public function listJoinRequests(Request $request, Group $group)
+    {
+        if ($group->created_by !== Auth::id()) {
+            return response()->json(['message' => 'Unauthorized to manage join requests for this group.'], 403);
+        }
+        // Memuat nama user yang request, email, dan kapan request dibuat (dari pivot table created_at)
+        $pendingRequests = $group->pendingRequests()
+                                ->select('users.id', 'users.name', 'users.email', 'group_user.created_at as requested_at_pivot')
+                                ->get();
+
+        return response()->json($pendingRequests);
+    }
+
+    /**
+     * Approve a join request for a user (only by group creator).
+     * $userId adalah ID dari user yang permintaannya akan di-approve.
+     */
+    public function approveJoinRequest(Request $request, Group $group, User $userToManage) // Menggunakan User model binding
+    {
+        if ($group->created_by !== Auth::id()) {
+            return response()->json(['message' => 'Unauthorized to manage join requests for this group.'], 403);
+        }
+
+        // Cek apakah userToManage memang punya request pending
+        $requestExists = $group->pendingRequests()->where('users.id', $userToManage->id)->exists();
+        if (!$requestExists) {
+            return response()->json(['message' => 'No pending request found for this user in this group.'], 404);
+        }
+
+        $group->allMemberEntries()->updateExistingPivot($userToManage->id, [
+            'status' => 'approved',
+            'responded_at' => now(),
+            'approved_by' => Auth::id(),
+        ]);
+
+        // Kirim notifikasi ke $userToManage jika perlu
+
+        return response()->json(['message' => 'User ' . $userToManage->name . ' has been approved to join the group.']);
+    }
+
+    /**
+     * Reject a join request for a user (only by group creator).
+     * $userId adalah ID dari user yang permintaannya akan di-reject.
+     */
+    public function rejectJoinRequest(Request $request, Group $group, User $userToManage) // Menggunakan User model binding
+    {
+        if ($group->created_by !== Auth::id()) {
+            return response()->json(['message' => 'Unauthorized to manage join requests for this group.'], 403);
+        }
+
+        // Cek apakah userToManage memang punya request pending
+        $requestExists = $group->pendingRequests()->where('users.id', $userToManage->id)->exists();
+        if (!$requestExists) {
+            return response()->json(['message' => 'No pending request found for this user in this group.'], 404);
+        }
+
+        $group->allMemberEntries()->updateExistingPivot($userToManage->id, [
+            'status' => 'rejected',
+            'responded_at' => now(),
+            'approved_by' => Auth::id(),
+        ]);
+
+        // Kirim notifikasi ke $userToManage jika perlu
+
+        return response()->json(['message' => 'User ' . $userToManage->name . '\'s request to join the group has been rejected.']);
     }
 }

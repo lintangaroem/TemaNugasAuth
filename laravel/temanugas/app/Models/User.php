@@ -71,4 +71,19 @@ class User extends Authenticatable
     {
         return $this->hasMany(Note::class, 'user_id');
     }
+    public function approvedGroups(): BelongsToMany
+    {
+        return $this->belongsToMany(Group::class, 'group_user', 'user_id', 'group_id')
+                    ->wherePivot('status', 'approved')
+                    ->withTimestamps();
+    }
+    /**
+     * Grup dimana user ini memiliki permintaan bergabung yang pending.
+     */
+    public function pendingGroupRequests(): BelongsToMany
+    {
+        return $this->belongsToMany(Group::class, 'group_user', 'user_id', 'group_id')
+                    ->wherePivot('status', 'pending')
+                    ->withTimestamps();
+    }
 }
