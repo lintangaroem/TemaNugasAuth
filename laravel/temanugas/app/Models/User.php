@@ -7,6 +7,8 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
 use Laravel\Sanctum\HasApiTokens;
+use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 
 class User extends Authenticatable
 {
@@ -41,4 +43,47 @@ class User extends Authenticatable
     protected $casts = [
         'email_verified_at' => 'datetime',
     ];
+    public function createdGroups(): HasMany
+    {
+        return $this->hasMany(Group::class, 'created_by');
+    }
+
+    /**
+     * Grup dimana user ini menjadi anggota.
+     */
+    public function groups(): BelongsToMany
+    {
+        return $this->belongsToMany(Group::class, 'group_user', 'user_id', 'group_id')->withTimestamps();
+    }
+
+    /**
+     * Todos yang ditugaskan kepada user ini.
+     */
+    public function todos(): HasMany
+    {
+        return $this->hasMany(Todo::class, 'user_id');
+    }
+
+    /**
+     * Notes yang dibuat oleh user ini.
+     */
+    public function notes(): HasMany
+    {
+        return $this->hasMany(Note::class, 'user_id');
+    }
+    public function approvedGroups(): BelongsToMany
+    {
+        return $this->belongsToMany(Group::class, 'group_user', 'user_id', 'group_id')
+                    ->wherePivot('status', 'approved')
+                    ->withTimestamps();
+    }
+    /**
+     * Grup dimana user ini memiliki permintaan bergabung yang pending.
+     */
+    public function pendingGroupRequests(): BelongsToMany
+    {
+        return $this->belongsToMany(Group::class, 'group_user', 'user_id', 'group_id')
+                    ->wherePivot('status', 'pending')
+                    ->withTimestamps();
+    }
 }
