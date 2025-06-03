@@ -71,4 +71,6 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::scopeBindings()->group(function () {
         Route::apiResource('projects.notes', NoteController::class)->except(['index', 'store']);
     });
+    // routes/api.php
+    Route::post('/projects-with-group', [ProjectController::class, 'storeWithNewGroup']); // atau di controller khusus
 });
