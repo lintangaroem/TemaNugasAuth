@@ -11,31 +11,24 @@ class Todo extends Model
     use HasFactory;
     protected $fillable = [
         'project_id',
-        'user_id', // User yang ditugaskan
         'title',
-        'description',
         'is_completed',
-        'due_date',
+        'created_by_user_id', // Jika Anda menambahkannya
     ];
 
     protected $casts = [
-        'is_completed' => 'boolean', // Casting is_completed ke tipe boolean
-        'due_date' => 'date',       // Casting due_date ke tipe date
+        'is_completed' => 'boolean',
     ];
 
-    /**
-     * Proyek tempat to-do ini berada.
-     */
     public function project(): BelongsTo
     {
         return $this->belongsTo(Project::class);
     }
 
-    /**
-     * User yang ditugaskan untuk to-do ini.
-     */
-    public function assignee(): BelongsTo // Menggunakan nama 'assignee' agar lebih jelas
+    // Relasi ke user yang membuat todo (jika ada kolom created_by_user_id)
+    public function creator(): BelongsTo
     {
-        return $this->belongsTo(User::class, 'user_id');
+        return $this->belongsTo(User::class, 'created_by_user_id');
     }
+
 }
