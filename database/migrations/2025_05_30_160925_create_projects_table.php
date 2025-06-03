@@ -11,15 +11,15 @@ return new class extends Migration
      *
      * @return void
      */
-    public function up()
+    public function up(): void
     {
         Schema::create('projects', function (Blueprint $table) {
             $table->id();
-            $table->foreignId('group_id')->constrained()->onDelete('cascade'); // Proyek milik grup mana
+            $table->foreignId('created_by')->constrained('users')->onDelete('cascade'); // User yang membuat proyek
             $table->string('name'); // Nama proyek
             $table->text('description')->nullable(); // Deskripsi proyek
             $table->date('deadline')->nullable(); // Batas waktu proyek
-            $table->string('status', 50)->default('pending'); // Status proyek: pending, in_progress, completed, dll.
+            $table->string('status', 50)->default('pending'); // Status proyek
             $table->timestamps();
         });
     }

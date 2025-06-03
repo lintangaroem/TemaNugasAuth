@@ -33,44 +33,39 @@ Route::get('/test', function () {
 Route::middleware('auth:sanctum')->group(function () {
     // Route untuk mendapatkan detail user yang sedang login
     Route::get('/user', function (Request $request) {
-        // Muat grup yang disetujui dan permintaan grup yang pending untuk user saat ini
-        return $request->user()->load('approvedGroups:id,name', 'pendingGroupRequests:id,name', 'createdGroups:id,name');
+       // return $request->user()->load('approvedProjects:id,name', 'pendingProjectRequests:id,name', 'createdProjects:id,name');
+        return $request->user();
     });
 
-    // Groups
-    Route::apiResource('groups', GroupController::class);
-    // Ganti nama route dari 'join' menjadi 'request-join'
-    Route::post('groups/{group}/request-join', [GroupController::class, 'requestToJoinGroup'])->name('groups.request-join');
-    Route::post('groups/{group}/leave', [GroupController::class, 'leaveGroup'])->name('groups.leave');
-    Route::get('groups/{group}/members', [GroupController::class, 'getMembers'])->name('groups.members'); // Ini akan get approved members
+    Route::apiResource('projects', ProjectController::class);
+    Route::post('projects/{project}/request-join', [ProjectController::class, 'requestToJoinProject'])->name('projects.request-join');
+    Route::post('projects/{project}/leave', [ProjectController::class, 'leaveProject'])->name('projects.leave');
+    Route::get('projects/{project}/members', [ProjectController::class, 'getProjectMembers'])->name('projects.members');
+    Route::get('projects/{project}/join-requests', [ProjectController::class, 'listJoinRequests'])->name('projects.join-requests.list');
+    Route::post('projects/{project}/join-requests/{userToManage}/approve', [ProjectController::class, 'approveJoinRequest'])->name('projects.join-requests.approve');
+    Route::post('projects/{project}/join-requests/{userToManage}/reject', [ProjectController::class, 'rejectJoinRequest'])->name('projects.join-requests.reject');
 
-    // Routes untuk manajemen approval (hanya bisa diakses oleh group creator)
-    Route::get('groups/{group}/join-requests', [GroupController::class, 'listJoinRequests'])->name('groups.join-requests.list');
-    // {userToManage} akan di-resolve ke model User karena type-hint di controller
-    Route::post('groups/{group}/join-requests/{userToManage}/approve', [GroupController::class, 'approveJoinRequest'])->name('groups.join-requests.approve');
-    Route::post('groups/{group}/join-requests/{userToManage}/reject', [GroupController::class, 'rejectJoinRequest'])->name('groups.join-requests.reject');
-
-
-    // Projects (Nested under groups)
-    Route::get('groups/{group}/projects', [ProjectController::class, 'index'])->name('groups.projects.index');
-    Route::post('groups/{group}/projects', [ProjectController::class, 'store'])->name('groups.projects.store');
-    Route::scopeBindings()->group(function () {
-        Route::apiResource('groups.projects', ProjectController::class)->except(['index', 'store']);
-    });
 
     // Todos (Nested under projects)
-    Route::get('projects/{project}/todos', [TodoController::class, 'index'])->name('projects.todos.index');
-    Route::post('projects/{project}/todos', [TodoController::class, 'store'])->name('projects.todos.store');
     Route::scopeBindings()->group(function () {
-        Route::apiResource('projects.todos', TodoController::class)->except(['index', 'store']);
+        Route::apiResource('projects.todos', TodoController::class);
+        // Ini akan membuat:
+        // GET    projects/{project}/todos -> TodoController@index (projects.todos.index)
+        // POST   projects/{project}/todos -> TodoController@store (projects.todos.store)
+        // GET    projects/{project}/todos/{todo} -> TodoController@show (projects.todos.show)
+        // PUT    projects/{project}/todos/{todo} -> TodoController@update (projects.todos.update)
+        // DELETE projects/{project}/todos/{todo} -> TodoController@destroy (projects.todos.destroy)
     });
 
-    // Notes (Nested under projects)
+
+    // Notes (Nested under projects - Definisi manual untuk index & store, sisanya oleh apiResource)
     Route::get('projects/{project}/notes', [NoteController::class, 'index'])->name('projects.notes.index');
     Route::post('projects/{project}/notes', [NoteController::class, 'store'])->name('projects.notes.store');
     Route::scopeBindings()->group(function () {
         Route::apiResource('projects.notes', NoteController::class)->except(['index', 'store']);
+        // Ini akan membuat:
+        // GET    projects/{project}/notes/{note} -> NoteController@show (projects.notes.show)
+        // PUT    projects/{project}/notes/{note} -> NoteController@update (projects.notes.update)
+        // DELETE projects/{project}/notes/{note} -> NoteController@destroy (projects.notes.destroy)
     });
-    // routes/api.php
-    Route::post('/projects-with-group', [ProjectController::class, 'storeWithNewGroup']); // atau di controller khusus
 });

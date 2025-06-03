@@ -17,11 +17,11 @@ class NoteController extends Controller
     {
         $user = $request->user();
         // Pastikan user adalah anggota grup dari proyek ini
-        if (!$project->group->members()->where('users.id', $user->id)->exists() && $project->group->created_by !== $user->id) {
+        if ($project->created_by !== $user->id && !$project->approvedMembers()->where('users.id', $user->id)->exists()) {
             return response()->json(['message' => 'Unauthorized to view notes for this project.'], 403);
         }
 
-        $notes = $project->notes()->with('creator:id,name')->latest()->paginate(10);
+        $notes = $project->notes()->with('assignee:id,name')->latest()->paginate(10);
         return response()->json($notes);
     }
 
@@ -32,7 +32,7 @@ class NoteController extends Controller
     {
         $user = $request->user();
         // Pastikan user adalah anggota grup dari proyek ini
-        if (!$project->group->members()->where('users.id', $user->id)->exists() && $project->group->created_by !== $user->id) {
+        if ($project->created_by !== $user->id && !$project->approvedMembers()->where('users.id', $user->id)->exists()) {
             return response()->json(['message' => 'Unauthorized to create notes for this project.'], 403);
         }
 
@@ -40,6 +40,12 @@ class NoteController extends Controller
             'title' => 'nullable|string|max:255',
             'content' => 'required|string',
         ]);
+        if ($request->filled('user_id')) {
+            $assigneeId = $request->input('user_id');
+            if (!$project->approvedMembers()->where('users.id', $assigneeId)->exists() && $project->created_by != $assigneeId) {
+                 return response()->json(['errors' => ['user_id' => ['Assignee must be an approved member or the creator of the project.']]], 422);
+            }
+        }
 
         if ($validator->fails()) {
             return response()->json(['errors' => $validator->errors()], 422);
@@ -51,7 +57,7 @@ class NoteController extends Controller
             'user_id' => $user->id, // Pembuat catatan adalah user yang terotentikasi
         ]);
 
-        return response()->json($note->load('creator:id,name'), 201);
+        return response()->json($note->load('assignee:id,name'), 201);
     }
 
     /**
@@ -61,8 +67,12 @@ class NoteController extends Controller
     {
         $user = $request->user();
         // Pastikan note ini milik proyek yang diberikan dan user adalah anggota grup
-        if ($note->project_id !== $project->id || (!$project->group->members()->where('users.id', $user->id)->exists() && $project->group->created_by !== $user->id)) {
+        if ($note->project_id !== $project->id) {
             return response()->json(['message' => 'Unauthorized or note not found in this project.'], 403);
+        }
+
+        if ($project->created_by !== $user->id && !$project->approvedMembers()->where('users.id', $user->id)->exists()) {
+            return response()->json(['message' => 'Unauthorized to view this note.'], 403);
         }
         return response()->json($note->load('creator:id,name'));
     }
@@ -74,21 +84,30 @@ class NoteController extends Controller
     {
         $user = $request->user();
         // Pastikan note ini milik proyek yang diberikan dan user adalah pembuat catatan ini
-        if ($note->project_id !== $project->id || $note->user_id !== $user->id) {
+        if ($note->project_id !== $project->id ) {
             return response()->json(['message' => 'Unauthorized to update this note.'], 403);
+        }
+        if ($project->created_by !== $user->id && !$project->approvedMembers()->where('users.id', $user->id)->exists()) {
+            return response()->json(['message' => 'Unauthorized to view this note.'], 403);
         }
 
         $validator = Validator::make($request->all(), [
             'title' => 'nullable|string|max:255',
             'content' => 'sometimes|required|string',
         ]);
+        if ($request->filled('user_id') && $request->input('user_id') != null) { // Periksa juga jika tidak null
+            $assigneeId = $request->input('user_id');
+            if (!$project->approvedMembers()->where('users.id', $assigneeId)->exists() && $project->created_by != $assigneeId) {
+                 return response()->json(['errors' => ['user_id' => ['Assignee must be an approved member or the creator of the project.']]], 422);
+            }
+        }
 
         if ($validator->fails()) {
             return response()->json(['errors' => $validator->errors()], 422);
         }
 
         $note->update($request->only(['title', 'content']));
-        return response()->json($note->load('creator:id,name'));
+        return response()->json($note->load('assignee:id,name'));
     }
 
     /**
@@ -98,8 +117,14 @@ class NoteController extends Controller
     {
         $user = $request->user();
          // Pastikan note ini milik proyek yang diberikan dan user adalah pembuat catatan ini atau pembuat grup
-        if ($note->project_id !== $project->id || ($note->user_id !== $user->id && $project->group->created_by !== $user->id) ) {
+        if ($note->project_id !== $project->id ) {
             return response()->json(['message' => 'Unauthorized to delete this note.'], 403);
+        }
+        if ($request->filled('user_id') && $request->input('user_id') != null) { // Periksa juga jika tidak null
+            $assigneeId = $request->input('user_id');
+            if (!$project->approvedMembers()->where('users.id', $assigneeId)->exists() && $project->created_by != $assigneeId) {
+                 return response()->json(['errors' => ['user_id' => ['Assignee must be an approved member or the creator of the project.']]], 422);
+            }
         }
 
         $note->delete();

@@ -40,20 +40,11 @@ class User extends Authenticatable
      *
      * @var array<string, string>
      */
-    protected $casts = [
-        'email_verified_at' => 'datetime',
-    ];
-    public function createdGroups(): HasMany
-    {
-        return $this->hasMany(Group::class, 'created_by');
-    }
+    protected $casts = ['email_verified_at' => 'datetime', 'password'];
 
-    /**
-     * Grup dimana user ini menjadi anggota.
-     */
-    public function groups(): BelongsToMany
+    public function createdProjects(): HasMany
     {
-        return $this->belongsToMany(Group::class, 'group_user', 'user_id', 'group_id')->withTimestamps();
+        return $this->hasMany(Project::class, 'created_by');
     }
 
     /**
@@ -71,19 +62,20 @@ class User extends Authenticatable
     {
         return $this->hasMany(Note::class, 'user_id');
     }
-    public function approvedGroups(): BelongsToMany
+    public function approvedProjects(): BelongsToMany
     {
-        return $this->belongsToMany(Group::class, 'group_user', 'user_id', 'group_id')
-                    ->wherePivot('status', 'approved')
-                    ->withTimestamps();
+        return $this->belongsToMany(Project::class, 'project_user', 'user_id', 'project_id')
+            ->wherePivot('status', 'approved')
+            ->withTimestamps();
     }
+
     /**
-     * Grup dimana user ini memiliki permintaan bergabung yang pending.
+     * Proyek dimana user ini memiliki permintaan bergabung yang pending.
      */
-    public function pendingGroupRequests(): BelongsToMany
+    public function pendingProjectRequests(): BelongsToMany
     {
-        return $this->belongsToMany(Group::class, 'group_user', 'user_id', 'group_id')
-                    ->wherePivot('status', 'pending')
-                    ->withTimestamps();
+        return $this->belongsToMany(Project::class, 'project_user', 'user_id', 'project_id')
+            ->wherePivot('status', 'pending')
+            ->withTimestamps();
     }
 }
