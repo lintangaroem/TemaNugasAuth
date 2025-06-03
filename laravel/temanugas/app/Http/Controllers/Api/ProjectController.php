@@ -28,7 +28,6 @@ class ProjectController extends Controller
 
         $projects = $group->projects()->with('todos', 'notes')->latest()->paginate(10);
         return response()->json($projects);
-
     }
 
     public function store(Request $request, Group $group)
@@ -58,7 +57,6 @@ class ProjectController extends Controller
         ]);
 
         return response()->json($project, 201);
-
     }
 
     /**
@@ -80,9 +78,9 @@ class ProjectController extends Controller
 
     public function update(Request $request, Project $project, Group $group)
     {
-         $user = $request->user();
+        $user = $request->user();
         // Pastikan proyek ini milik grup yang diberikan dan user adalah anggota grup (atau pembuat grup)
-         if ($project->group_id !== $group->id || (!$group->members()->where('users.id', $user->id)->exists() && $group->created_by !== $user->id)) {
+        if ($project->group_id !== $group->id || (!$group->members()->where('users.id', $user->id)->exists() && $group->created_by !== $user->id)) {
             return response()->json(['message' => 'Unauthorized or project not found in this group.'], 403);
         }
         // Mungkin hanya anggota tertentu atau pembuat proyek/grup yang boleh update, tambahkan logika otorisasi jika perlu
@@ -100,7 +98,6 @@ class ProjectController extends Controller
 
         $project->update($request->only(['name', 'description', 'deadline', 'status']));
         return response()->json($project);
-
     }
 
     /**
@@ -113,12 +110,55 @@ class ProjectController extends Controller
     {
         $user = $request->user();
         // Pastikan proyek ini milik grup yang diberikan dan user adalah pembuat grup atau memiliki hak khusus
-         if ($project->group_id !== $group->id || $group->created_by !== $user->id) { // Contoh: Hanya pembuat grup yang bisa hapus proyek
+        if ($project->group_id !== $group->id || $group->created_by !== $user->id) { // Contoh: Hanya pembuat grup yang bisa hapus proyek
             return response()->json(['message' => 'Unauthorized to delete this project.'], 403);
         }
 
         $project->delete();
         return response()->json(['message' => 'Project deleted successfully.'], 200);
+    }
 
+    public function storeWithNewGroup(Request $request)
+    {
+        $validator = Validator::make($request->all(), [
+            'project_name' => 'required|string|max:255',
+            'project_description' => 'nullable|string',
+            'project_deadline' => 'nullable|date|after_or_equal:today',
+            'group_name' => 'required|string|max:255',
+            'group_description' => 'nullable|string',
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json(['errors' => $validator->errors()], 422);
+        }
+
+        $user = Auth::user();
+
+        // 1. Buat Grup
+        $group = Group::create([
+            'name' => $request->group_name,
+            'description' => $request->group_description,
+            'created_by' => $user->id,
+        ]);
+
+        // 2. Tambahkan pembuat sebagai anggota grup yang disetujui
+        $group->allMemberEntries()->attach($user->id, [
+            'status' => 'approved',
+            'responded_at' => now(),
+            'approved_by' => $user->id
+        ]);
+
+        // 3. Buat Proyek
+        $project = $group->projects()->create([
+            'name' => $request->project_name,
+            'description' => $request->project_description,
+            'deadline' => $request->project_deadline,
+            'status' => 'pending', // Default status
+        ]);
+
+        // Muat relasi yang mungkin dibutuhkan frontend
+        $project->load('group.creator', 'group.approvedMembers');
+
+        return response()->json($project, 201);
     }
 }
