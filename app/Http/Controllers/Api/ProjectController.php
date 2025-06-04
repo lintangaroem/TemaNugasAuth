@@ -9,6 +9,7 @@ use App\Models\User;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Validator;
+use Illuminate\Support\Facades\Log;
 
 
 class ProjectController extends Controller
@@ -20,12 +21,12 @@ class ProjectController extends Controller
      */
     public function index(Request $request)
     {
-        $user = $request->user();
-        $projects = Project::where('created_by', $user->id)
-            ->orWhereHas('approvedMembers', function ($query) use ($user) {
+        $user = $request->user(); // Ini adalah user yang sedang login (misalnya Elsa)
+        $projects = Project::where('created_by', $user->id) // Proyek yang dibuat Elsa
+            ->orWhereHas('approvedMembers', function ($query) use ($user) { // Proyek yang Elsa ikuti
                 $query->where('users.id', $user->id);
             })
-            ->with(['creator:id,name', 'approvedMembers:id,name'])
+            ->with(['creator:id,name'])
             ->latest()
             ->paginate(10);
 
@@ -44,9 +45,7 @@ class ProjectController extends Controller
         if ($validator->fails()) {
             return response()->json(['errors' => $validator->errors()], 422);
         }
-
         $user = Auth::user();
-
         $project = Project::create([
             'name' => $request->name,
             'description' => $request->description,
@@ -56,11 +55,22 @@ class ProjectController extends Controller
         ]);
 
         // Pembuat proyek otomatis menjadi anggota yang disetujui
-        $project->allMemberEntries()->attach($user->id, [
+        $project->allMemberEntries()->attach($user->id, [ // Ini juga sudah benar
             'status' => 'approved',
             'responded_at' => now(),
             'approved_by' => $user->id
         ]);
+
+        try {
+            $project->allMemberEntries()->attach($user->id, [
+                'status' => 'approved',
+                'responded_at' => now(),
+                'approved_by' => $user->id
+            ]);
+            Log::info('User ' . $user->id . ' attached to project ' . $project->id . ' as approved member.');
+        } catch (\Exception $e) {
+            Log::error('Error attaching creator to project: ' . $e->getMessage());
+        }
 
         return response()->json($project->load(['creator:id,name', 'approvedMembers:id,name']), 201);
     }
