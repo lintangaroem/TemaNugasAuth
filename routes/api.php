@@ -33,8 +33,8 @@ Route::get('/test', function () {
 Route::middleware('auth:sanctum')->group(function () {
     // Route untuk mendapatkan detail user yang sedang login
     Route::get('/user', function (Request $request) {
-       // return $request->user()->load('approvedProjects:id,name', 'pendingProjectRequests:id,name', 'createdProjects:id,name');
-        return $request->user();
+        return $request->user()->load('approvedProjects', 'pendingProjectRequests', 'createdProjects');
+        //return $request->user();
     });
 
     Route::apiResource('projects', ProjectController::class);
