@@ -64,22 +64,20 @@ class TodoController extends Controller
     public function update(Request $request, Project $project, Todo $todo)
     {
         $user = $request->user();
+
+        // Pastikan todo memang bagian dari project ini
         if ($todo->project_id !== $project->id) {
             return response()->json(['message' => 'Todo not found in this project.'], 404);
         }
-        // Otorisasi: Siapa yang boleh update? Pembuat todo? Pembuat proyek? Semua anggota proyek?
-        // Contoh: Hanya pembuat todo atau pembuat proyek
-        if ($todo->created_by_user_id !== $user->id && $project->created_by !== $user->id) {
-             return response()->json(['message' => 'Unauthorized to update this todo.'], 403);
-        }
-        // Atau jika semua anggota proyek boleh update status selesai/belum:
-        // if ($project->created_by !== $user->id && !$project->approvedMembers()->where('users.id', $user->id)->exists()) {
-        //     return response()->json(['message' => 'Unauthorized to update this todo.'], 403);
-        // }
 
+        // --- PERBAIKAN LOGIKA OTORISASI DI SINI ---
+        // Otorisasi: Hanya pembuat proyek ATAU anggota proyek yang disetujui
+        if ($project->created_by !== $user->id && !$project->approvedMembers()->where('users.id', $user->id)->exists()) {
+            return response()->json(['message' => 'Unauthorized to update this todo.'], 403);
+        }
+        // --- AKHIR PERBAIKAN ---
 
         // Validasi hanya untuk field yang bisa diupdate
-        // Biasanya hanya 'title' dan 'is_completed' untuk todo sederhana
         $validator = Validator::make($request->all(), [
             'title' => 'sometimes|required|string|max:255',
             'is_completed' => 'sometimes|required|boolean',
@@ -89,7 +87,6 @@ class TodoController extends Controller
             return response()->json(['errors' => $validator->errors()], 422);
         }
 
-        // Hanya update field yang diizinkan
         $updateData = [];
         if ($request->has('title')) {
             $updateData['title'] = $request->title;

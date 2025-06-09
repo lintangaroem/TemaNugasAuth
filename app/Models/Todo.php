@@ -31,4 +31,9 @@ class Todo extends Model
         return $this->belongsTo(User::class, 'created_by_user_id');
     }
 
+    public function assignee(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'assigned_to_user_id');
+    }
+
 }
