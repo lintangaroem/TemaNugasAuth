@@ -21,14 +21,17 @@ class ProjectController extends Controller
      */
     public function index(Request $request)
     {
-        $user = $request->user(); // Ini adalah user yang sedang login (misalnya Elsa)
-        $projects = Project::where('created_by', $user->id) // Proyek yang dibuat Elsa
-            ->orWhereHas('approvedMembers', function ($query) use ($user) { // Proyek yang Elsa ikuti
+        $user = $request->user();
+        $projects = Project::query()
+            // 1. Tampilkan proyek yang BUKAN dibuat oleh user saat ini
+            ->where('created_by', '!=', $user->id)
+            // 2. Dan juga, filter proyek dimana user saat ini BELUM mengirim request join atau menjadi anggota
+            ->whereDoesntHave('allMemberEntries', function ($query) use ($user) {
                 $query->where('users.id', $user->id);
             })
             ->with(['creator:id,name'])
             ->latest()
-            ->paginate(10);
+            ->paginate(15);
 
         return response()->json($projects);
     }
@@ -61,16 +64,16 @@ class ProjectController extends Controller
             'approved_by' => $user->id
         ]);
 
-        try {
-            $project->allMemberEntries()->attach($user->id, [
-                'status' => 'approved',
-                'responded_at' => now(),
-                'approved_by' => $user->id
-            ]);
-            Log::info('User ' . $user->id . ' attached to project ' . $project->id . ' as approved member.');
-        } catch (\Exception $e) {
-            Log::error('Error attaching creator to project: ' . $e->getMessage());
-        }
+        // try {
+        //     $project->allMemberEntries()->attach($user->id, [
+        //         'status' => 'approved',
+        //         'responded_at' => now(),
+        //         'approved_by' => $user->id
+        //     ]);
+        //     Log::info('User ' . $user->id . ' attached to project ' . $project->id . ' as approved member.');
+        // } catch (\Exception $e) {
+        //     Log::error('Error attaching creator to project: ' . $e->getMessage());
+        // }
 
         return response()->json($project->load(['creator:id,name', 'approvedMembers:id,name']), 201);
     }
@@ -222,47 +225,47 @@ class ProjectController extends Controller
     }
 
 
-    public function storeWithNewGroup(Request $request)
-    {
-        $validator = Validator::make($request->all(), [
-            'project_name' => 'required|string|max:255',
-            'project_description' => 'nullable|string',
-            'project_deadline' => 'nullable|date|after_or_equal:today',
-            'group_name' => 'required|string|max:255',
-            'group_description' => 'nullable|string',
-        ]);
+//     public function storeWithNewGroup(Request $request)
+//     {
+//         $validator = Validator::make($request->all(), [
+//             'project_name' => 'required|string|max:255',
+//             'project_description' => 'nullable|string',
+//             'project_deadline' => 'nullable|date|after_or_equal:today',
+//             'group_name' => 'required|string|max:255',
+//             'group_description' => 'nullable|string',
+//         ]);
 
-        if ($validator->fails()) {
-            return response()->json(['errors' => $validator->errors()], 422);
-        }
+//         if ($validator->fails()) {
+//             return response()->json(['errors' => $validator->errors()], 422);
+//         }
 
-        $user = Auth::user();
+//         $user = Auth::user();
 
-        // 1. Buat Grup
-        $group = Group::create([
-            'name' => $request->group_name,
-            'description' => $request->group_description,
-            'created_by' => $user->id,
-        ]);
+//         // 1. Buat Grup
+//         $group = Group::create([
+//             'name' => $request->group_name,
+//             'description' => $request->group_description,
+//             'created_by' => $user->id,
+//         ]);
 
-        // 2. Tambahkan pembuat sebagai anggota grup yang disetujui
-        $group->allMemberEntries()->attach($user->id, [
-            'status' => 'approved',
-            'responded_at' => now(),
-            'approved_by' => $user->id
-        ]);
+//         // 2. Tambahkan pembuat sebagai anggota grup yang disetujui
+//         $group->allMemberEntries()->attach($user->id, [
+//             'status' => 'approved',
+//             'responded_at' => now(),
+//             'approved_by' => $user->id
+//         ]);
 
-        // 3. Buat Proyek
-        $project = $group->projects()->create([
-            'name' => $request->project_name,
-            'description' => $request->project_description,
-            'deadline' => $request->project_deadline,
-            'status' => 'pending', // Default status
-        ]);
+//         // 3. Buat Proyek
+//         $project = $group->projects()->create([
+//             'name' => $request->project_name,
+//             'description' => $request->project_description,
+//             'deadline' => $request->project_deadline,
+//             'status' => 'pending', // Default status
+//         ]);
 
-        // Muat relasi yang mungkin dibutuhkan frontend
-        $project->load('group.creator', 'group.approvedMembers');
+//         // Muat relasi yang mungkin dibutuhkan frontend
+//         $project->load('group.creator', 'group.approvedMembers');
 
-        return response()->json($project, 201);
-    }
+//         return response()->json($project, 201);
+//     }
 }
